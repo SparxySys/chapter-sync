@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Integer,
     LargeBinary,
     MetaData,
@@ -141,6 +142,51 @@ class Chapter(Base):
         back_populates="chapters",
         uselist=False,
     )
+
+
+class ChapterPreviousVersions(Base):
+    __tablename__ = "chapter_previous_versions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["series_id", "number"], ["chapter.series_id", "chapter.number"]
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    series_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("series.id"), nullable=False
+    )
+
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+
+    number: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+
+    ebook: Mapped[bytes | None] = mapped_column(LargeBinary, default=None)
+
+    sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+
+    published_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    @hybrid_property
+    def size_kb(self) -> float:
+        if self.ebook is None:
+            return 0
+
+        return len(self.ebook) / 1024
+
+    @size_kb.inplace.expression
+    @classmethod
+    def _size_kb_expression(cls) -> ColumnElement[float]:
+        return type_coerce(func.length(func.coalesce(cls.ebook, 0)) / 1024, Float)
 
 
 class EmailSubscriber(Base):

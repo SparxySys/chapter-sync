@@ -5,7 +5,7 @@ from typing import Annotated
 
 import cappa
 import pendulum
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
 from chapter_sync.cli.base import Sync, Watch, console, database, email_client
@@ -14,7 +14,7 @@ from chapter_sync.email import EmailClient
 from chapter_sync.epub import Epub
 from chapter_sync.handlers import get_chapter_handler, get_settings_handler
 from chapter_sync.request import requests_session
-from chapter_sync.schema import Chapter, Series
+from chapter_sync.schema import Chapter, ChapterPreviousVersions, Series
 
 
 def watch(
@@ -78,6 +78,23 @@ def update_series(database: Session, series: Series, status: Status):
     requests = requests_session()
     chapter_handler = get_chapter_handler(series.type)
     for chapter in chapter_handler(requests, series, settings, status):
+        query = select(Chapter).where(
+            Chapter.series_id == series.id, Chapter.number == chapter.number
+        )
+        existing_chapter = database.scalars(query).first()
+        if existing_chapter is not None:
+            previous_chapter = ChapterPreviousVersions(
+                series_id=existing_chapter.series_id,
+                title=existing_chapter.title,
+                url=existing_chapter.url,
+                number=existing_chapter.number,
+                content=str(existing_chapter.content),
+                published_at=existing_chapter.published_at,
+            )
+            database.add(previous_chapter)
+            delete_query = delete(Chapter).where(Chapter.id == existing_chapter.id)
+            database.execute(delete_query)
+
         database.add(chapter)
         database.commit()
 
